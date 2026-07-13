@@ -11,11 +11,16 @@ namespace TinyTweaks
     {
         static ConfigEntry<bool> enableFreeGhost;
         static ConfigEntry<string> visualItemName;
+        static ConfigEntry<float> visualPropDown;
+        static ConfigEntry<float> visualPropForward;
+
 
         public static void Binds(ConfigFile config)
         {
             enableFreeGhost = config.Bind("FreeGhost", "enable free ghost", true);
             visualItemName = config.Bind("FreeGhost", "visual item name", "0_Items/Binoculars_Prop");
+            visualPropDown = config.Bind("FreeGhost", "visual prop down", 0f);
+            visualPropForward = config.Bind("FreeGhost", "visual prop forward", 0f);
         }
         [HarmonyPatch]
         public static class PlayerGhostPatch
@@ -125,6 +130,8 @@ namespace TinyTweaks
             [HarmonyPrefix]
             public static bool Prefix_GhostUpdate(PlayerGhost __instance)
             {
+                PhotonView pv = __instance.GetComponent<PhotonView>();
+                if (pv != null && !pv.IsMine) return true;
                 if (!enableFreeGhost.Value)
                     return true;
 
@@ -137,6 +144,8 @@ namespace TinyTweaks
             public static void Postfix_MainCameraLateUpdate(MainCamera __instance)
             {
                 if (!freecamActive || __instance.cam == null || !enableFreeGhost.Value)
+                    return;
+                if (GUIManager.instance == null || GUIManager.instance.windowBlockingInput)
                     return;
 
                 // Mouse look
@@ -152,12 +161,15 @@ namespace TinyTweaks
 
                 // Flight movement
                 Vector3 move = Vector3.zero;
-                if (Input.GetKey(KeyCode.W)) move += forward;
-                if (Input.GetKey(KeyCode.S)) move -= forward;
-                if (Input.GetKey(KeyCode.A)) move -= right;
-                if (Input.GetKey(KeyCode.D)) move += right;
-                if (Input.GetKey(KeyCode.Space)) move += Vector3.up;
-                if (Input.GetKey(KeyCode.LeftControl)) move += Vector3.down;
+                //if (GUIManager.instance != null && !GUIManager.instance.windowBlockingInput)
+                //{
+                    if (Input.GetKey(KeyCode.W)) move += forward;
+                    if (Input.GetKey(KeyCode.S)) move -= forward;
+                    if (Input.GetKey(KeyCode.A)) move -= right;
+                    if (Input.GetKey(KeyCode.D)) move += right;
+                    if (Input.GetKey(KeyCode.Space)) move += Vector3.up;
+                    if (Input.GetKey(KeyCode.LeftControl)) move += Vector3.down;
+                //}
 
                 bool isMoving = move != Vector3.zero;
                 if (isMoving)
@@ -193,7 +205,7 @@ namespace TinyTweaks
 
                 if (visualProp != null)
                 {
-                    visualProp.transform.position = desiredPosition;
+                    visualProp.transform.position = desiredPosition + Vector3.forward * visualPropForward.Value + Vector3.down * visualPropDown.Value;
                     visualProp.transform.rotation = desiredRotation;
                 }
             }
