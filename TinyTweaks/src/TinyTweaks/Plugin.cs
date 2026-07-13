@@ -21,5 +21,10 @@ namespace TinyTweaks
             showNamesAlways.Binds(Config);
             Log.LogInfo($"Plugin {Name} is loaded!");
         }
+
+        public static void log(string message)
+        {
+            Log.LogInfo($"{message}");
+        }
     }
 }

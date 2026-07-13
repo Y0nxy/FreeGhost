@@ -19,8 +19,12 @@ namespace TinyTweaks
         {
             enableFreeGhost = config.Bind("FreeGhost", "enable free ghost", true);
             visualItemName = config.Bind("FreeGhost", "visual item name", "0_Items/Binoculars_Prop");
-            visualPropDown = config.Bind("FreeGhost", "visual prop down", 0f);
-            visualPropForward = config.Bind("FreeGhost", "visual prop forward", 0f);
+            visualPropDown = config.Bind("FreeGhost", "visual prop down", 0f,
+                new ConfigDescription("Prop Down",
+                new AcceptableValueRange<float>(-5f, 5f)));
+            visualPropForward = config.Bind("FreeGhost", "visual prop forward", 0f,
+                new ConfigDescription("Prop Forward",
+                new AcceptableValueRange<float>(-5f, 5f)));
         }
         [HarmonyPatch]
         public static class PlayerGhostPatch
@@ -31,10 +35,10 @@ namespace TinyTweaks
             private static float rotationY = 0f;
 
             private static bool freecamActive = false;
-            private static GameObject visualProp;
-            private static Item visualItem;
+            public static GameObject visualProp;
+            public static Item visualItem;
             private static bool propIsKinematic = true;
-
+            private static FreecamController controller;
             // The transform we WANT the camera at, computed once per frame in
             // Postfix_MainCameraLateUpdate. The two render-pipeline hooks below
             // just re-apply these values - they don't recompute input - so we
@@ -90,15 +94,18 @@ namespace TinyTweaks
                     // clients have their own separately-instantiated copy of
                     // this networked object, so disabling renderers here is
                     // purely local and doesn't need to be synced.
-                    foreach (Renderer r in visualProp.GetComponentsInChildren<Renderer>())
-                        r.enabled = false;
+                    
+                    
+                    //disabled for now
+                    //foreach (Renderer r in visualProp.GetComponentsInChildren<Renderer>())
+                    //    r.enabled = false;
                 }
                 catch (Exception e)
                 {
                     Plugin.Log.LogError($"Sync Error: {e.Message}");
                 }
 
-                FreecamController controller = __instance.gameObject.AddComponent<FreecamController>();
+                controller = __instance.gameObject.AddComponent<FreecamController>();
                 controller.linkedVisualProp = visualProp;
                 controller.onDestroyed = () => freecamActive = false;
 
@@ -147,7 +154,6 @@ namespace TinyTweaks
                     return;
                 if (GUIManager.instance == null || GUIManager.instance.windowBlockingInput)
                     return;
-
                 // Mouse look
                 float mouseX = Input.GetAxis("Mouse X");
                 float mouseY = Input.GetAxis("Mouse Y");
@@ -161,15 +167,12 @@ namespace TinyTweaks
 
                 // Flight movement
                 Vector3 move = Vector3.zero;
-                //if (GUIManager.instance != null && !GUIManager.instance.windowBlockingInput)
-                //{
-                    if (Input.GetKey(KeyCode.W)) move += forward;
-                    if (Input.GetKey(KeyCode.S)) move -= forward;
-                    if (Input.GetKey(KeyCode.A)) move -= right;
-                    if (Input.GetKey(KeyCode.D)) move += right;
-                    if (Input.GetKey(KeyCode.Space)) move += Vector3.up;
-                    if (Input.GetKey(KeyCode.LeftControl)) move += Vector3.down;
-                //}
+                if (Input.GetKey(KeyCode.W)) move += forward;
+                if (Input.GetKey(KeyCode.S)) move -= forward;
+                if (Input.GetKey(KeyCode.A)) move -= right;
+                if (Input.GetKey(KeyCode.D)) move += right;
+                if (Input.GetKey(KeyCode.Space)) move += Vector3.up;
+                if (Input.GetKey(KeyCode.LeftControl)) move += Vector3.down;
 
                 bool isMoving = move != Vector3.zero;
                 if (isMoving)
@@ -205,8 +208,71 @@ namespace TinyTweaks
 
                 if (visualProp != null)
                 {
-                    visualProp.transform.position = desiredPosition + Vector3.forward * visualPropForward.Value + Vector3.down * visualPropDown.Value;
+                    if (Input.GetKey(KeyCode.Q)) //drop
+                    {
+                        visualItem.SetKinematic(false);
+                        if (visualProp.GetComponent<Antigrav>() != null)
+                            UnityEngine.Object.Destroy(visualProp.GetComponent<Antigrav>());
+                        visualProp = null;
+                        visualItem = null;
+                        controller.linkedVisualProp = null;
+                        return;
+                    }
+                    if (Input.GetMouseButtonDown(0))
+                        visualItem.FinishCastPrimary();
+                    if (Input.GetMouseButtonDown(1))
+                    {
+                        if (visualItem.canUseOnFriend)
+                        {
+                            Plugin.log("canUseOnFriend");
+                            RaycastHit hit;
+                            Ray ray = new Ray(desiredPosition, forward);
+                            if (Physics.Raycast(ray, out hit, 5f, LayerMask.NameToLayer("Character")))
+                            {
+                                if (hit.collider.TryGetComponent<CharacterInteractible>(out CharacterInteractible c))
+                                {
+                                    Interaction.instance.bestCharacter = c;
+                                }
+                                else
+                                {
+                                    CharacterInteractible characterInteract = hit.collider.GetComponentInParent<CharacterInteractible>();
+                                    if (characterInteract != null)
+                                        Interaction.instance.bestCharacter = characterInteract;
+                                }
+                                Plugin.log($"Right Clicked on: {Interaction.instance.bestCharacter.name}");
+                            }
+
+                        }
+                        visualItem.FinishCastSecondary();
+                    }
+                    visualProp.transform.position = desiredPosition + forward * visualPropForward.Value + Vector3.down * visualPropDown.Value;
                     visualProp.transform.rotation = desiredRotation;
+                }
+                else if (Input.GetMouseButtonDown(1))
+                {
+                    Vector3 originPoint = desiredPosition;
+                    //Start from desiredPosition, go to forward for 3m
+                    Ray ray = new Ray(desiredPosition, forward);
+                    RaycastHit raycastHit;
+                    Plugin.log("RightClick");
+                    if (Physics.Raycast(ray, out raycastHit, 3f))
+                    {
+                        if (raycastHit.collider.TryGetComponent<Item>(out Item item))
+                        {
+                            Plugin.log("Trying to possess item: " + item.name);
+                            PossessItem(item);
+                            
+                        }
+                        else
+                        {
+                            Item parentItem = raycastHit.collider.GetComponentInParent<Item>();
+                            if (parentItem != null)
+                            {
+                                Plugin.log("Trying to possess item in parents: " + parentItem.name);
+                                PossessItem(parentItem);
+                            }
+                        }
+                    }
                 }
             }
 
@@ -220,6 +286,22 @@ namespace TinyTweaks
 
                 cam.transform.position = desiredPosition;
                 cam.transform.rotation = desiredRotation;
+            }
+            private static void PossessItem(Item item)
+            {
+                PhotonView pv = item.GetComponent<PhotonView>();
+
+                if (pv == null) return;
+                pv.RequestOwnership();
+
+                visualProp = item.gameObject;
+                visualItem = item;
+                if (visualProp.GetComponent<Antigrav>() == null)
+                    visualProp.AddComponent<Antigrav>();
+                propIsKinematic = true;
+                if (visualItem != null)
+                    visualItem.SetKinematicNetworked(true);
+                controller.linkedVisualProp = visualProp;
             }
         }
     }
