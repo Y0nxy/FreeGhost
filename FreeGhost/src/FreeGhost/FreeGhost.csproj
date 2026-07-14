@@ -2,8 +2,8 @@
   <!-- Project properties -->
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
-    <AssemblyName>YonDev.TinyTweaks</AssemblyName>
-    <AssemblyTitle>TinyTweaks</AssemblyTitle>
+    <AssemblyName>YonDev.FreeGhost</AssemblyName>
+    <AssemblyTitle>FreeGhost</AssemblyTitle>
 	<Nullable>disable</Nullable>
     <Version>0.1.0</Version>
   </PropertyGroup>
@@ -11,7 +11,7 @@
   <!-- ThunderPipe properties -->
   <PropertyGroup>
     <IsThunderstorePackable>true</IsThunderstorePackable>
-    <ThunderstoreName>TinyTweaks</ThunderstoreName>
+    <ThunderstoreName>FreeGhost</ThunderstoreName>
     <ThunderstoreDescription>TODO: Fill in short mod description at max 250 characters.</ThunderstoreDescription>
     <!--
       Communities and package categories metadata for publishing with ThunderPipe.
@@ -40,9 +40,6 @@
     <ThunderstoreDependency Include="BepInEx-BepInExPack_PEAK" Version="5.4.75301" />
   </ItemGroup>
 	<Target Name="CopyDllOnly" AfterTargets="Build">
-		<Copy
-		    SourceFiles="$(TargetDir)$(TargetName).dll"
-		    DestinationFolder="C:\Users\yonij\AppData\Roaming\com.kesomannen.gale\peak\profiles\modTesting\BepInEx\plugins\"
-		    SkipUnchangedFiles="true" />
+		<Copy SourceFiles="$(TargetDir)$(TargetName).dll" DestinationFolder="C:\Users\yonij\AppData\Roaming\com.kesomannen.gale\peak\profiles\modTesting\BepInEx\plugins\" SkipUnchangedFiles="true" />
 	</Target>
 </Project>

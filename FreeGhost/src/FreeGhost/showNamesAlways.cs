@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 
-namespace TinyTweaks
+namespace FreeGhost
 {
     public class showNamesAlways
     {

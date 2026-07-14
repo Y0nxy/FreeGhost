@@ -5,7 +5,7 @@ using UnityEngine;
 using UnityEngine.PlayerLoop;
 using UnityEngine.SceneManagement;
 
-namespace TinyTweaks
+namespace FreeGhost
 {
     [BepInAutoPlugin]
     public partial class Plugin : BaseUnityPlugin
