@@ -1,6 +1,7 @@
 ﻿using BepInEx.Configuration;
 using HarmonyLib;
 using Photon.Pun;
+using pworld.Scripts.PPhys;
 using System;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -10,14 +11,15 @@ namespace TinyTweaks
     public class FreeGhost
     {
         static ConfigEntry<bool> enableFreeGhost;
+        static ConfigEntry<bool> giveVisualProp;
         static ConfigEntry<string> visualItemName;
         static ConfigEntry<float> visualPropDown;
         static ConfigEntry<float> visualPropForward;
 
-
         public static void Binds(ConfigFile config)
         {
             enableFreeGhost = config.Bind("FreeGhost", "enable free ghost", true);
+            giveVisualProp = config.Bind("FreeGhost", "give visual prop", false);
             visualItemName = config.Bind("FreeGhost", "visual item name", "0_Items/Binoculars_Prop");
             visualPropDown = config.Bind("FreeGhost", "visual prop down", 0f,
                 new ConfigDescription("Prop Down",
@@ -35,8 +37,9 @@ namespace TinyTweaks
             private static float rotationY = 0f;
 
             private static bool freecamActive = false;
-            public static GameObject visualProp;
+            public static GameObject visualProp = null;
             public static Item visualItem;
+            private static bool propisAntiGravity = false;
             private static bool propIsKinematic = true;
             private static FreecamController controller;
             // The transform we WANT the camera at, computed once per frame in
@@ -72,33 +75,27 @@ namespace TinyTweaks
 
                 try
                 {
-                    visualProp = PhotonNetwork.Instantiate(
-                        visualItemName.Value,
-                        camTransform.position,
-                        camTransform.rotation,
-                        0, null);
+                    if (giveVisualProp.Value)
+                    {
 
-                    // Kinematic while stationary so physics doesn't fight our
-                    // manual transform writes; flipped to non-kinematic while
-                    // moving/rotating in Postfix_MainCameraLateUpdate, since a
-                    // kinematic rigidbody's movement isn't what gets networked.
-                    visualItem = visualProp.GetComponent<Item>();
-                    if (visualProp.GetComponent<Antigrav>() == null)
-                        visualProp.AddComponent<Antigrav>();
-                    propIsKinematic = true;
-                    if (visualItem != null)
-                        visualItem.SetKinematicNetworked(true);
+                        visualProp = PhotonNetwork.Instantiate(
+                            visualItemName.Value,
+                            camTransform.position,
+                            camTransform.rotation,
+                            0, null);
 
-                    // Hide it from our OWN camera only - it spawns right at the
-                    // camera position so it'd otherwise block our view. Other
-                    // clients have their own separately-instantiated copy of
-                    // this networked object, so disabling renderers here is
-                    // purely local and doesn't need to be synced.
-                    
-                    
-                    //disabled for now
-                    //foreach (Renderer r in visualProp.GetComponentsInChildren<Renderer>())
-                    //    r.enabled = false;
+                        // Kinematic while stationary so physics doesn't fight our
+                        // manual transform writes; flipped to non-kinematic while
+                        // moving/rotating in Postfix_MainCameraLateUpdate, since a
+                        // kinematic rigidbody's movement isn't what gets networked.
+                        visualItem = visualProp.GetComponent<Item>();
+                        if (visualProp.GetComponent<Antigrav>() == null)
+                            visualProp.AddComponent<Antigrav>();
+                        else propisAntiGravity = true;
+                        propIsKinematic = true;
+                        if (visualItem != null)
+                            visualItem.SetKinematicNetworked(true);
+                    }
                 }
                 catch (Exception e)
                 {
@@ -211,9 +208,10 @@ namespace TinyTweaks
                     if (Input.GetKey(KeyCode.Q)) //drop
                     {
                         visualItem.SetKinematic(false);
-                        if (visualProp.GetComponent<Antigrav>() != null)
+                        if (!propisAntiGravity)
                             UnityEngine.Object.Destroy(visualProp.GetComponent<Antigrav>());
                         visualProp = null;
+                        propisAntiGravity = false;
                         visualItem = null;
                         controller.linkedVisualProp = null;
                         return;
@@ -227,21 +225,13 @@ namespace TinyTweaks
                             Plugin.log("canUseOnFriend");
                             RaycastHit hit;
                             Ray ray = new Ray(desiredPosition, forward);
-                            if (Physics.Raycast(ray, out hit, 5f, LayerMask.NameToLayer("Character")))
+                            if (Physics.Raycast(ray, out hit, 5f, LayerMask.GetMask("Character")))
                             {
-                                if (hit.collider.TryGetComponent<CharacterInteractible>(out CharacterInteractible c))
-                                {
-                                    Interaction.instance.bestCharacter = c;
-                                }
-                                else
-                                {
-                                    CharacterInteractible characterInteract = hit.collider.GetComponentInParent<CharacterInteractible>();
-                                    if (characterInteract != null)
-                                        Interaction.instance.bestCharacter = characterInteract;
-                                }
+                                CharacterInteractible characterInteract = hit.collider.GetComponentInParent<CharacterInteractible>();
+                                if (characterInteract != null)
+                                    Interaction.instance.bestCharacter = characterInteract;
                                 Plugin.log($"Right Clicked on: {Interaction.instance.bestCharacter.name}");
                             }
-
                         }
                         visualItem.FinishCastSecondary();
                     }
@@ -250,27 +240,18 @@ namespace TinyTweaks
                 }
                 else if (Input.GetMouseButtonDown(1))
                 {
+                    controller.linkedVisualProp = null;
                     Vector3 originPoint = desiredPosition;
                     //Start from desiredPosition, go to forward for 3m
                     Ray ray = new Ray(desiredPosition, forward);
                     RaycastHit raycastHit;
-                    Plugin.log("RightClick");
-                    if (Physics.Raycast(ray, out raycastHit, 3f))
+                    if (Physics.Raycast(ray, out raycastHit, 5f))
                     {
-                        if (raycastHit.collider.TryGetComponent<Item>(out Item item))
+                        Item parentItem = raycastHit.collider.GetComponentInParent<Item>();
+                        if (parentItem != null)
                         {
-                            Plugin.log("Trying to possess item: " + item.name);
-                            PossessItem(item);
-                            
-                        }
-                        else
-                        {
-                            Item parentItem = raycastHit.collider.GetComponentInParent<Item>();
-                            if (parentItem != null)
-                            {
-                                Plugin.log("Trying to possess item in parents: " + parentItem.name);
-                                PossessItem(parentItem);
-                            }
+                            Plugin.log("Trying to possess item in parents: " + parentItem.name);
+                            PossessItem(parentItem);
                         }
                     }
                 }
@@ -297,7 +278,11 @@ namespace TinyTweaks
                 visualProp = item.gameObject;
                 visualItem = item;
                 if (visualProp.GetComponent<Antigrav>() == null)
+                {
                     visualProp.AddComponent<Antigrav>();
+                    propisAntiGravity = false;
+                }
+                else propisAntiGravity = true;
                 propIsKinematic = true;
                 if (visualItem != null)
                     visualItem.SetKinematicNetworked(true);
