@@ -18,7 +18,6 @@ namespace FreeGhost
             harmony.PatchAll();
             
             FreeGhost.Binds(Config);
-            showNamesAlways.Binds(Config);
             Log.LogInfo($"Plugin {Name} is loaded!");
         }
 

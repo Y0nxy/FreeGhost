@@ -33,10 +33,10 @@ namespace FreeGhost
             enableFreeGhost = config.Bind("FreeGhost", "enable free ghost", true);
             giveVisualProp = config.Bind("FreeGhost", "give visual prop", false);
             visualItemName = config.Bind("FreeGhost", "visual item name", "0_Items/Binoculars_Prop");
-            visualPropDown = config.Bind("FreeGhost", "visual prop down", 0f,
+            visualPropDown = config.Bind("FreeGhost", "visual prop down", 0.7f,
                 new ConfigDescription("Prop Down",
                 new AcceptableValueRange<float>(-5f, 5f)));
-            visualPropForward = config.Bind("FreeGhost", "visual prop forward", 0f,
+            visualPropForward = config.Bind("FreeGhost", "visual prop forward", 1f,
                 new ConfigDescription("Prop Forward",
                 new AcceptableValueRange<float>(-5f, 5f)));
         }
@@ -47,8 +47,9 @@ namespace FreeGhost
             private static float lookSpeed = 2f;
             private static float rotationX = 0f;
             private static float rotationY = 0f;
+            static bool isFlipped = false;
 
-            
+
             // The transform we WANT the camera at, computed once per frame in
             // Postfix_MainCameraLateUpdate. The two render-pipeline hooks below
             // just re-apply these values - they don't recompute input - so we
@@ -71,7 +72,7 @@ namespace FreeGhost
                     Plugin.Log.LogError("FreeGhost: MainCamera.instance.cam was null on init");
                     return;
                 }
-
+                isFlipped = false;
                 Transform camTransform = MainCamera.instance.cam.transform;
                 rotationY = camTransform.eulerAngles.y;
                 rotationX = camTransform.eulerAngles.x;
@@ -220,7 +221,7 @@ namespace FreeGhost
 
                 if (visualProp != null)
                 {
-                    if (Input.GetKey(KeyCode.Q)) //drop
+                    if (Input.GetKeyDown(KeyCode.Q)) //drop
                     {
                         DropItem();
                         return;
@@ -231,8 +232,12 @@ namespace FreeGhost
                     {
                         HandleRightClick();
                     }
+                    if (Input.GetKeyDown(KeyCode.R))
+                    {
+                        isFlipped = !isFlipped;
+                    }
                     visualProp.transform.position = desiredPosition + forward * visualPropForward.Value + Vector3.down * visualPropDown.Value;
-                    visualProp.transform.rotation = desiredRotation;
+                    visualProp.transform.rotation = isFlipped ? desiredRotation * Quaternion.Euler(0, 180, 0) : desiredRotation;
                 }
                 else if (Input.GetMouseButtonDown(1))
                 {
@@ -303,19 +308,25 @@ namespace FreeGhost
             visualItem = null;
             controller.linkedVisualProp = null;
         }
-    }
-
-    public class FreecamController : MonoBehaviour
-    {
-        public GameObject linkedVisualProp;
-        public Character spectatingCharacter;
-        public Action onDestroyed;
-
-        private void OnDestroy()
+        public class FreecamController : MonoBehaviour
         {
-            onDestroyed?.Invoke();
-            if (linkedVisualProp != null && PhotonNetwork.IsConnected && PhotonNetwork.LocalPlayer != null)
-                PhotonNetwork.Destroy(linkedVisualProp);
+            public GameObject linkedVisualProp;
+            public Character spectatingCharacter;
+            public Action onDestroyed;
+
+            private void OnDestroy()
+            {
+                onDestroyed?.Invoke();
+                if (linkedVisualProp != null && PhotonNetwork.IsConnected && PhotonNetwork.LocalPlayer != null)
+                {
+                    var item = linkedVisualProp.GetComponent<Item>();
+                    if (item != null)
+                        item.SetKinematic(false);
+                    if (!propisAntiGravity && linkedVisualProp != null)
+                        UnityEngine.Object.Destroy(linkedVisualProp.GetComponent<Antigrav>());
+                }
+                    //PhotonNetwork.Destroy(linkedVisualProp);
+            }
         }
     }
 }
