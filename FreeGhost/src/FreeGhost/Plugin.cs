@@ -11,10 +11,10 @@ namespace FreeGhost
     public partial class Plugin : BaseUnityPlugin
     {
         public static ManualLogSource Log { get; private set; } = null!;
+        static Harmony harmony = new Harmony("yondev.tinytweaks");
         private void Awake()
         {
             Log = Logger;
-            Harmony harmony = new Harmony("yondev.tinytweaks");
             harmony.PatchAll();
             
             FreeGhost.Binds(Config);
@@ -24,6 +24,10 @@ namespace FreeGhost
         public static void log(string message)
         {
             Log.LogInfo($"{message}");
+        }
+        static void onDestroy()
+        {
+            harmony.UnpatchSelf();
         }
     }
 }

@@ -1,11 +1,7 @@
 ﻿using BepInEx.Configuration;
 using HarmonyLib;
 using Photon.Pun;
-using pworld.Scripts.PPhys;
-using Sirenix.Utilities;
 using System;
-using System.Collections;
-using System.Diagnostics.Contracts;
 using UnityEngine;
 using UnityEngine.Rendering;
 using static FreeGhost.FreeGhost_Functions.RightClickHandler;
@@ -19,10 +15,12 @@ namespace FreeGhost
         static ConfigEntry<string> visualItemName;
         static ConfigEntry<float> visualPropDown;
         static ConfigEntry<float> visualPropForward;
+        static ConfigEntry<float> StatueDown;
+        static ConfigEntry<float> StatueForward;
         public static Vector3 desiredPosition;
         public static Quaternion desiredRotation;
         public static GameObject visualProp = null;
-        public static GameObject PropCameraObject = null;
+        public static PhysicsSyncer syncer = null;
         private static bool freecamActive = false;
         public static Item visualItem;
         private static bool propisAntiGravity = false;
@@ -40,7 +38,15 @@ namespace FreeGhost
             visualPropForward = config.Bind("FreeGhost", "visual prop forward", 1f,
                 new ConfigDescription("Prop Forward",
                 new AcceptableValueRange<float>(-5f, 5f)));
+            StatueDown = config.Bind("FreeGhost", "statue down", 0.7f,
+                new ConfigDescription("Prop Down",
+                new AcceptableValueRange<float>(-5f, 5f)));
+            StatueForward = config.Bind("FreeGhost", "statue forward", 1f,
+                new ConfigDescription("Prop Forward",
+                new AcceptableValueRange<float>(-5f, 5f)));
+
         }
+
         [HarmonyPatch]
         public static class PlayerGhostPatch
         {
@@ -50,15 +56,8 @@ namespace FreeGhost
             private static float rotationY = 0f;
             static bool isFlipped = false;
 
-
-            // The transform we WANT the camera at, computed once per frame in
-            // Postfix_MainCameraLateUpdate. The two render-pipeline hooks below
-            // just re-apply these values - they don't recompute input - so we
-            // never double-apply a mouse/movement delta in the same frame.
-
             private static bool subscribedToRenderHooks = false;
 
-            // PlayerGhost.RPCA_InitGhost(PhotonView character, PhotonView t)
             [HarmonyPatch(typeof(PlayerGhost), "RPCA_InitGhost")]
             [HarmonyPostfix]
             public static void Postfix_InitGhost(PlayerGhost __instance, PhotonView character, PhotonView t)
@@ -84,17 +83,12 @@ namespace FreeGhost
                 {
                     if (giveVisualProp.Value)
                     {
-
                         visualProp = PhotonNetwork.Instantiate(
                             visualItemName.Value,
                             camTransform.position,
                             camTransform.rotation,
                             0, null);
 
-                        // Kinematic while stationary so physics doesn't fight our
-                        // manual transform writes; flipped to non-kinematic while
-                        // moving/rotating in Postfix_MainCameraLateUpdate, since a
-                        // kinematic rigidbody's movement isn't what gets networked.
                         visualItem = visualProp.GetComponent<Item>();
                         if (visualProp.GetComponent<Antigrav>() == null)
                             visualProp.AddComponent<Antigrav>();
@@ -113,16 +107,6 @@ namespace FreeGhost
                 controller.linkedVisualProp = visualProp;
                 controller.onDestroyed = () => freecamActive = false;
 
-                // Two last-resort enforcement hooks, covering both rendering
-                // paths Unity supports:
-                //  - Camera.onPreCull fires after ALL LateUpdates, right before
-                //    that camera culls/renders - but ONLY on the built-in render
-                //    pipeline.
-                //  - RenderPipelineManager.beginCameraRendering is the SRP
-                //    (URP/HDRP) equivalent; onPreCull is never invoked there.
-                // Only one of these will actually fire depending on the
-                // project's pipeline, so subscribing to both costs nothing and
-                // removes the guesswork.
                 if (!subscribedToRenderHooks)
                 {
                     Camera.onPreCull += OnCameraPreCull;
@@ -134,9 +118,6 @@ namespace FreeGhost
                 freecamActive = true;
             }
 
-            // PlayerGhost.Update() normally re-points the ghost body at the
-            // camera every frame using m_target. Doesn't affect the real
-            // camera, but it's wasted work once freecam is active, so skip it.
             [HarmonyPatch(typeof(PlayerGhost), "Update")]
             [HarmonyPrefix]
             public static bool Prefix_GhostUpdate(PlayerGhost __instance)
@@ -149,7 +130,6 @@ namespace FreeGhost
                 return !freecamActive;
             }
 
-            // Read input and integrate movement ONCE per frame.
             [HarmonyPatch(typeof(MainCamera), "LateUpdate")]
             [HarmonyPostfix]
             public static void Postfix_MainCameraLateUpdate(MainCamera __instance)
@@ -160,7 +140,7 @@ namespace FreeGhost
                     return;
                 if (controller.linkedVisualProp == null || !controller.linkedVisualProp.activeSelf)
                     DropItem();
-                // Mouse look
+
                 float mouseX = Input.GetAxis("Mouse X");
                 float mouseY = Input.GetAxis("Mouse Y");
                 rotationY += mouseX * lookSpeed;
@@ -171,7 +151,6 @@ namespace FreeGhost
                 Vector3 forward = desiredRotation * Vector3.forward;
                 Vector3 right = desiredRotation * Vector3.right;
 
-                // Flight movement
                 Vector3 move = Vector3.zero;
                 if (Input.GetKey(KeyCode.W)) move += forward;
                 if (Input.GetKey(KeyCode.S)) move -= forward;
@@ -179,7 +158,7 @@ namespace FreeGhost
                 if (Input.GetKey(KeyCode.D)) move += right;
                 if (Input.GetKey(KeyCode.Space)) move += Vector3.up;
                 if (Input.GetKey(KeyCode.LeftControl)) move += Vector3.down;
-                if (Input.GetKey(KeyCode.F)) //focus back on player
+                if (Input.GetKey(KeyCode.F))
                 {
                     if (controller.spectatingCharacter != null)
                     {
@@ -194,17 +173,12 @@ namespace FreeGhost
                     desiredPosition += move.normalized * speed * Time.deltaTime;
                 }
 
-                // Apply immediately too, in case neither render hook fires for
-                // some reason - better a slightly-early write than no write.
                 __instance.cam.transform.position = desiredPosition;
                 __instance.cam.transform.rotation = desiredRotation;
 
-                // Non-kinematic whenever position OR rotation is actively
-                // changing - a small deadzone avoids toggling on mouse jitter.
                 bool isRotating = Mathf.Abs(mouseX) > 0.001f || Mathf.Abs(mouseY) > 0.001f;
                 bool isChanging = isMoving || isRotating;
 
-                // Only fire the RPC on state transitions, not every frame.
                 if (visualItem != null)
                 {
                     if (isChanging && propIsKinematic)
@@ -219,18 +193,16 @@ namespace FreeGhost
                     }
                 }
 
-
                 if (visualProp != null)
                 {
-                    if (Input.GetKeyDown(KeyCode.Q)) //drop
+                    if (Input.GetKeyDown(KeyCode.Q))
                     {
                         DropItem();
                         return;
                     }
-                    if (Input.GetMouseButtonDown(0))
+                    if (Input.GetMouseButtonDown(0) && visualItem != null)
                     {
-                        if (visualItem != null)
-                            visualItem.FinishCastPrimary();
+                        visualItem.FinishCastPrimary();
                     }
                     if (Input.GetMouseButtonDown(1))
                     {
@@ -240,12 +212,38 @@ namespace FreeGhost
                     {
                         isFlipped = !isFlipped;
                     }
-                    visualProp.transform.position = desiredPosition + forward * visualPropForward.Value + Vector3.down * visualPropDown.Value;
-                    visualProp.transform.rotation = isFlipped ? desiredRotation * Quaternion.Euler(0, 180, 0) : desiredRotation;
+
+                    Quaternion targetRotation = isFlipped ? desiredRotation * Quaternion.Euler(0, 180, 0) : desiredRotation;
+                    Vector3 targetPosition;
+                    if (syncer == null)
+                        targetPosition = desiredPosition + forward * visualPropForward.Value + Vector3.down * visualPropDown.Value;
+                    else
+                        targetPosition = desiredPosition + forward * StatueForward.Value + Vector3.down * StatueDown.Value;
+
+                    // 1. Rotate root object
+                    visualProp.transform.rotation = targetRotation;
+
+                    // 2. Derive offset relative to child Rigidbody position
+                    Vector3 localOffset = GetLocalCenterOffset(visualProp);
+                    Vector3 worldOffset = targetRotation * localOffset;
+
+                    // 3. Position root so child Rigidbody centers on targetPosition
+                    Vector3 finalPos = targetPosition - worldOffset;
+                    visualProp.transform.position = finalPos;
+
+                    // 4. Update child Rigidbody position/rotation for PhysicsSyncer
+                    Rigidbody hipRb = visualProp.GetComponentInChildren<Rigidbody>();
+                    if (hipRb != null)
+                    {
+                        hipRb.linearVelocity = Vector3.zero;
+                        hipRb.angularVelocity = Vector3.zero;
+                        hipRb.position = finalPos;
+                        hipRb.rotation = targetRotation;
+                    }
                 }
                 else if (Input.GetMouseButtonDown(1))
                 {
-                    HandleRightClick();   
+                    HandleRightClick();
                 }
             }
 
@@ -260,12 +258,10 @@ namespace FreeGhost
                 cam.transform.position = desiredPosition;
                 cam.transform.rotation = desiredRotation;
             }
-            
 
-            //onSwitchCharacter
             [HarmonyPatch(typeof(PlayerGhost), "RPCA_SetTarget")]
             [HarmonyPostfix]
-            private static void OnSwitchPlayer(PlayerGhost __instance,  PhotonView t)
+            private static void OnSwitchPlayer(PlayerGhost __instance, PhotonView t)
             {
                 if (!freecamActive || !enableFreeGhost.Value) return;
                 PhotonView pv = __instance.GetComponent<PhotonView>();
@@ -273,51 +269,102 @@ namespace FreeGhost
                 {
                     Character c = t.GetComponent<Character>();
                     controller.spectatingCharacter = c;
-                    if (Vector3.Distance(desiredPosition, c.Center)>50)
+                    if (Vector3.Distance(desiredPosition, c.Center) > 50)
                         desiredPosition = c.Center + Vector3.up * 10;
                 }
             }
-            
-            
         }
+
         public static void PossessItem(GameObject item)
         {
             PhotonView pv = item.GetComponent<PhotonView>();
-
             if (pv == null) return;
             EnsureOwnership(pv);
 
             visualProp = item;
-            visualItem = item.GetComponent<Item>(); //can be null
-            if (visualProp.GetComponent<Antigrav>() == null)
+            visualItem = item.GetComponent<Item>();
+
+            // Find existing child Rigidbody or attach if missing
+            Rigidbody hipRb = item.GetComponentInChildren<Rigidbody>();
+            if (hipRb == null)
+            {
+                Transform hipTransform = item.transform.Find("Scout/Armature/Hip (RIGIDBODY)");
+                if (hipTransform != null)
+                    hipRb = hipTransform.gameObject.AddComponent<Rigidbody>();
+                else
+                    hipRb = item.AddComponent<Rigidbody>();
+            }
+
+            // Keep non-kinematic for PUN sync, but disable gravity for levitation
+            hipRb.isKinematic = false;
+            hipRb.useGravity = false;
+            hipRb.linearVelocity = Vector3.zero;
+            hipRb.angularVelocity = Vector3.zero;
+
+            // Bind active Rigidbody reference to PhysicsSyncer
+            syncer = item.GetComponentInParent<PhysicsSyncer>();
+            if (syncer != null)
+            {
+                syncer.rig = hipRb;
+                syncer.shouldSync = true;
+                syncer.ForceSyncForFrames(30);
+            }
+
+            if (visualProp.GetComponent<Antigrav>() == null && syncer == null)
             {
                 visualProp.AddComponent<Antigrav>();
                 propisAntiGravity = false;
             }
             else propisAntiGravity = true;
+
             if (visualItem != null)
             {
-                visualItem.SetKinematicNetworked(true);
-                propIsKinematic = true;
+                visualItem.SetKinematicNetworked(false);
+                propIsKinematic = false;
             }
+
             controller.linkedVisualProp = visualProp;
         }
+
         public static void DropItem()
         {
+            if (visualProp != null)
+            {
+                Rigidbody hipRb = visualProp.GetComponentInChildren<Rigidbody>();
+                if (hipRb != null)
+                {
+                    hipRb.useGravity = true;
+                }
+            }
+
             if (visualItem != null)
             {
                 visualItem.SetKinematic(false);
                 if (visualItem.GetComponent<PhotonView>() != null && visualItem.GetComponent<PhotonView>().IsMine)
                     visualItem.GetComponent<PhotonView>().TransferOwnership(PhotonNetwork.MasterClient);
-
             }
+
             if (!propisAntiGravity && visualProp != null)
                 UnityEngine.Object.Destroy(visualProp.GetComponent<Antigrav>());
+
             visualProp = null;
             propisAntiGravity = false;
             visualItem = null;
+            syncer = null;
             controller.linkedVisualProp = null;
         }
+
+        private static Vector3 GetLocalCenterOffset(GameObject root)
+        {
+            Rigidbody childRb = root.GetComponentInChildren<Rigidbody>();
+            if (childRb != null)
+            {
+                return root.transform.InverseTransformPoint(childRb.transform.position);
+            }
+
+            return Vector3.zero;
+        }
+
         public class FreecamController : MonoBehaviour
         {
             public GameObject linkedVisualProp;
@@ -331,9 +378,9 @@ namespace FreeGhost
                 {
                     DropItem();
                 }
-                    //PhotonNetwork.Destroy(linkedVisualProp);
             }
         }
+
         private static void EnsureOwnership(PhotonView view)
         {
             if (view == null || view.IsMine) return;
