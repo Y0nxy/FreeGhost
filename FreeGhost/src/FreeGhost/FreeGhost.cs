@@ -22,6 +22,7 @@ namespace FreeGhost
         public static Vector3 desiredPosition;
         public static Quaternion desiredRotation;
         public static GameObject visualProp = null;
+        public static GameObject PropCameraObject = null;
         private static bool freecamActive = false;
         public static Item visualItem;
         private static bool propisAntiGravity = false;
@@ -227,7 +228,10 @@ namespace FreeGhost
                         return;
                     }
                     if (Input.GetMouseButtonDown(0))
-                        visualItem.FinishCastPrimary();
+                    {
+                        if (visualItem != null)
+                            visualItem.FinishCastPrimary();
+                    }
                     if (Input.GetMouseButtonDown(1))
                     {
                         HandleRightClick();
@@ -276,31 +280,37 @@ namespace FreeGhost
             
             
         }
-        public static void PossessItem(Item item)
+        public static void PossessItem(GameObject item)
         {
             PhotonView pv = item.GetComponent<PhotonView>();
 
             if (pv == null) return;
-            if (!pv.IsMine)
-                pv.RequestOwnership();
+            EnsureOwnership(pv);
 
-            visualProp = item.gameObject;
-            visualItem = item;
+            visualProp = item;
+            visualItem = item.GetComponent<Item>(); //can be null
             if (visualProp.GetComponent<Antigrav>() == null)
             {
                 visualProp.AddComponent<Antigrav>();
                 propisAntiGravity = false;
             }
             else propisAntiGravity = true;
-            propIsKinematic = true;
             if (visualItem != null)
+            {
                 visualItem.SetKinematicNetworked(true);
+                propIsKinematic = true;
+            }
             controller.linkedVisualProp = visualProp;
         }
         public static void DropItem()
         {
             if (visualItem != null)
+            {
                 visualItem.SetKinematic(false);
+                if (visualItem.GetComponent<PhotonView>() != null && visualItem.GetComponent<PhotonView>().IsMine)
+                    visualItem.GetComponent<PhotonView>().TransferOwnership(PhotonNetwork.MasterClient);
+
+            }
             if (!propisAntiGravity && visualProp != null)
                 UnityEngine.Object.Destroy(visualProp.GetComponent<Antigrav>());
             visualProp = null;
@@ -319,14 +329,20 @@ namespace FreeGhost
                 onDestroyed?.Invoke();
                 if (linkedVisualProp != null && PhotonNetwork.IsConnected && PhotonNetwork.LocalPlayer != null)
                 {
-                    var item = linkedVisualProp.GetComponent<Item>();
-                    if (item != null)
-                        item.SetKinematic(false);
-                    if (!propisAntiGravity && linkedVisualProp != null)
-                        UnityEngine.Object.Destroy(linkedVisualProp.GetComponent<Antigrav>());
+                    DropItem();
                 }
                     //PhotonNetwork.Destroy(linkedVisualProp);
             }
+        }
+        private static void EnsureOwnership(PhotonView view)
+        {
+            if (view == null || view.IsMine) return;
+            if (view.OwnershipTransfer == OwnershipOption.Fixed)
+            {
+                view.OwnershipTransfer = OwnershipOption.Takeover;
+            }
+            view.RequestOwnership();
+            view.TransferOwnership(PhotonNetwork.LocalPlayer);
         }
     }
 }

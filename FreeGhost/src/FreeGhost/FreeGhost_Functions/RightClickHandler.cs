@@ -15,6 +15,7 @@ namespace FreeGhost.FreeGhost_Functions
             Plugin.log("RightClicked!");
             if (visualProp != null)
             {
+                if (visualItem == null) return;
                 if (visualItem.canUseOnFriend)
                 {
                     Plugin.log("canUseOnFriend");
@@ -43,20 +44,31 @@ namespace FreeGhost.FreeGhost_Functions
             {
                 //Item
                 GameObject hit = raycastHit.collider.gameObject;
-                Item parentItem = raycastHit.collider.GetComponentInParent<Item>();
+                Plugin.log("found object: " + hit.name);
+                Item parentItem = hit.GetComponentInParent<Item>();
                 if (parentItem != null)
                 {
-                    Plugin.log("Trying to possess item: " + parentItem.name);
-                    FreeGhost.PossessItem(parentItem);
+                    Plugin.log("Trying to possess item: " + hit.name);
+                    FreeGhost.PossessItem(parentItem.gameObject);
+                    return;
                 }
-                Luggage luggage = hit.GetComponent<Luggage>();
+                Luggage luggage = hit.GetComponentInParent<Luggage>();
                 if (luggage != null)
                 {
-                    if (luggage.state == Luggage.LuggageState.Closed)
+                    if (luggage.state != Luggage.LuggageState.Open)
                     {
                         luggage.photonView.RPC("OpenLuggageRPC", RpcTarget.All, new object[] { true });
                         Plugin.log("Opened luggage: " + luggage.name);
+                        return;
                     }
+                }
+                PhysicsSyncer phySync = hit.GetComponentInParent<PhysicsSyncer>();
+                if (phySync != null)
+                {
+                    FreeGhost.PossessItem(phySync.gameObject);
+                    //FreeGhost.setCameraObj(phySync.GetComponentInChildren<CustomizationRefs>().gameObject); //main mesh should be in the center
+                    Plugin.log("Trying to posses statue");
+                    return;
                 }
             }
             else if (Physics.Raycast(ray, out raycastHit, maxDistance, LayerMask.GetMask("Character")))
