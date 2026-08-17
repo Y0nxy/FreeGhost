@@ -2,6 +2,7 @@
 using HarmonyLib;
 using Photon.Pun;
 using System;
+using System.ComponentModel.Design;
 using UnityEngine;
 using UnityEngine.Rendering;
 using static FreeGhost.FreeGhost_Functions.RightClickHandler;
@@ -17,6 +18,8 @@ namespace FreeGhost
         static ConfigEntry<float> visualPropForward;
         static ConfigEntry<float> StatueDown;
         static ConfigEntry<float> StatueForward;
+        static ConfigEntry<float> otherDown;
+        static ConfigEntry<float> otherForward;
         public static Vector3 desiredPosition;
         public static Quaternion desiredRotation;
         public static GameObject visualProp = null;
@@ -44,6 +47,12 @@ namespace FreeGhost
             StatueForward = config.Bind("FreeGhost", "statue forward", 1f,
                 new ConfigDescription("Prop Forward",
                 new AcceptableValueRange<float>(-5f, 5f)));
+            otherDown = config.Bind("FreeGhost", "other down", 0.7f,
+                new ConfigDescription("Prop Down",
+                new AcceptableValueRange<float>(-50f, 50f)));
+            otherForward = config.Bind("FreeGhost", "other forward", 1f,
+                new ConfigDescription("Prop Forward",
+                new AcceptableValueRange<float>(-50f, 50f)));
 
         }
 
@@ -192,6 +201,10 @@ namespace FreeGhost
                         propIsKinematic = true;
                     }
                 }
+                if (controller != null && controller.GetComponent<PlayerGhost>() is PlayerGhost localGhost)
+                {
+                    SyncGhostLocation.TryEncode(localGhost, desiredPosition);
+                }
 
                 if (visualProp != null)
                 {
@@ -215,10 +228,16 @@ namespace FreeGhost
 
                     Quaternion targetRotation = isFlipped ? desiredRotation * Quaternion.Euler(0, 180, 0) : desiredRotation;
                     Vector3 targetPosition;
-                    if (syncer == null)
+
+                    if (visualItem != null)
                         targetPosition = desiredPosition + forward * visualPropForward.Value + Vector3.down * visualPropDown.Value;
                     else
-                        targetPosition = desiredPosition + forward * StatueForward.Value + Vector3.down * StatueDown.Value;
+                    {
+                        if (syncer != null)
+                            targetPosition = desiredPosition + forward * StatueForward.Value + Vector3.down * StatueDown.Value;
+                        else
+                            targetPosition = desiredPosition + forward * otherForward.Value + Vector3.down * otherDown.Value;
+                    }
 
                     // 1. Rotate root object
                     visualProp.transform.rotation = targetRotation;
@@ -363,6 +382,60 @@ namespace FreeGhost
             }
 
             return Vector3.zero;
+        }
+
+        public static class SyncGhostLocation
+        {
+            public const float MaxSyncDistance = 500f;
+            public static readonly Vector3 GhostUpOffset = new Vector3(0f, 0.5f, 0f);
+
+            /// <summary>
+            /// Encodes the free-flight camera position into native lookDirection and spectateZoom fields.
+            /// </summary>
+            public static bool TryEncode(PlayerGhost ghost, Vector3 desiredPosition)
+            {
+                if (ghost == null || ghost.m_owner == null || ghost.m_target == null)
+                    return false;
+
+                // Only update network data if local client owns the player view
+                if (ghost.m_owner.photonView == null || !ghost.m_owner.photonView.IsMine)
+                    return false;
+
+                // Vanilla formula: Target.Center + (0.5 * Vector3.up) - (spectateZoom * lookDirection)
+                Vector3 targetOrigin = ghost.m_target.Center + GhostUpOffset;
+                Vector3 targetOffset = desiredPosition - targetOrigin;
+                float distance = targetOffset.magnitude;
+
+                // Guard against NaN/Infinity values
+                if (float.IsNaN(distance) || float.IsInfinity(distance))
+                    return false;
+
+                if (distance <= 0.0001f)
+                {
+                    ghost.m_owner.data.lookDirection = Vector3.forward;
+                    ghost.m_owner.data.spectateZoom = 0f;
+                    return true;
+                }
+
+                // Repurpose lookDirection and spectateZoom
+                float clampedDistance = Mathf.Min(distance, MaxSyncDistance);
+                Vector3 lookDirection = -targetOffset.normalized;
+
+                // Write into character sync payload
+                ghost.m_owner.data.lookDirection = lookDirection;
+                ghost.m_owner.data.spectateZoom = clampedDistance;
+
+                return true;
+            }
+
+            /// <summary>
+            /// Decodes network lookDirection and spectateZoom back into world coordinates.
+            /// </summary>
+            public static Vector3 Decode(Vector3 targetCenter, Vector3 lookDirection, float spectateZoom)
+            {
+                Vector3 origin = targetCenter + GhostUpOffset;
+                return origin - (lookDirection.normalized * spectateZoom);
+            }
         }
 
         public class FreecamController : MonoBehaviour
