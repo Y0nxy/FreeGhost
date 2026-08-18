@@ -358,7 +358,7 @@ namespace FreeGhost
 
             if (visualItem != null)
             {
-                visualItem.SetKinematic(false);
+                visualItem.SetKinematicNetworked(false);
                 if (visualItem.GetComponent<PhotonView>() != null && visualItem.GetComponent<PhotonView>().IsMine)
                     visualItem.GetComponent<PhotonView>().TransferOwnership(PhotonNetwork.MasterClient);
             }
