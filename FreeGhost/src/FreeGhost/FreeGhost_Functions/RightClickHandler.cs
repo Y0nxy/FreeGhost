@@ -127,33 +127,33 @@ namespace FreeGhost.FreeGhost_Functions
         public static void EnsureGhostBallColliders()
         {
             // 1. Include inactive objects in the search
-            GhostBall[] ghostBalls = UnityEngine.Object.FindObjectsByType<GhostBall>(
-                FindObjectsInactive.Include,
-                FindObjectsSortMode.None
-            );
+            GhostBall[] ghostBalls = UnityEngine.Object.FindObjectsByType<GhostBall>(FindObjectsSortMode.None);
 
             Plugin.log($"Found {ghostBalls.Length} GhostBall instances in scene.");
 
             foreach (GhostBall ball in ghostBalls)
             {
-                // 2. Check the object AND its children for any existing collider
-                Collider existingCollider = ball.GetComponentInChildren<Collider>();
+                if (ball.GetComponent<SphereCollider>() != null) continue;
+                SphereCollider col = ball.gameObject.AddComponent<SphereCollider>();
+                col.isTrigger = true;
+                col.center = new Vector3(0, 0.1f, 0);
+                col.radius = 0.7f;
+                Plugin.log($"Successfully added SphereCollider to GhostBall: {ball.name}");
+            }
+        }
+        public static void EnsureTornadoColliders()
+        {
+            Tornado[] Tornados = UnityEngine.Object.FindObjectsByType<Tornado>(FindObjectsSortMode.None);
+            Plugin.log($"Found {Tornados.Length} Tornados instances in scene.");
 
-                if (existingCollider == null)
-                {
-                    // 3. Ensure the GameObject layer is NOT set to Ignore Raycast (Layer 2)
-                    if (ball.gameObject.layer == LayerMask.NameToLayer("Ignore Raycast"))
-                    {
-                        ball.gameObject.layer = LayerMask.NameToLayer("Default");
-                    }
-
-                    // 4. Add the trigger collider
-                    SphereCollider sphere = ball.gameObject.AddComponent<SphereCollider>();
-                    sphere.radius = 2.0f; // 2.0f is usually large enough; 5.0f might trigger through walls
-                    sphere.isTrigger = true;
-
-                    Plugin.log($"Successfully added SphereCollider to GhostBall: {ball.name} on layer {ball.gameObject.layer}");
-                }
+            foreach (Tornado tornado in Tornados)
+            {
+                if (tornado.GetComponent<BoxCollider>() != null) continue;
+                BoxCollider col = tornado.gameObject.AddComponent<BoxCollider>();
+                col.isTrigger = true;
+                col.center = new Vector3(0, 80, 0);
+                col.size = new Vector3(70, 150, 70);
+                Plugin.log($"Successfully added BoxCollider to Tornado: {tornado.name}");
             }
         }
     }
