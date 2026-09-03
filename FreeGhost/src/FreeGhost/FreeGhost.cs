@@ -139,7 +139,7 @@ namespace FreeGhost
                 return !freecamActive;
             }
 
-            [HarmonyPatch(typeof(MainCamera), "LateUpdate")]
+            [HarmonyPatch(typeof(MainCamera), "Update")]
             [HarmonyPostfix]
             public static void Postfix_MainCameraLateUpdate(MainCamera __instance)
             {
