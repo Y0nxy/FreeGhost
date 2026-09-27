@@ -185,7 +185,7 @@ namespace FreeGhost
                     {
                         var pauseMenu = GameObject.Find("GAME/GUIManager/PauseMenu");
                         if (pauseMenu != null)
-                            pauseMenu.SetActive(!pauseMenu.activeSelf);
+                            pauseMenu.SetActive(!pauseMenu.activeInHierarchy);
                     }
                 }
                 bool isMoving = move != Vector3.zero;
@@ -307,12 +307,26 @@ namespace FreeGhost
             {
                 if (!enableFreeGhost.Value) return;
 
-                // Restrict fallback camera injection to specific scene types
+                // Restrict logic to specific level/scene types
                 string activeSceneName = SceneManager.GetActiveScene().name;
                 if (activeSceneName != "Airport" && !activeSceneName.StartsWith("Level_")) return;
 
-                if (Character.localCharacter == null)
+                // When character exists, only allow camera modification if player is a ghost
+                if (Character.localCharacter != null)
                 {
+                    bool isGhost = Character.localCharacter.GetComponent<PlayerGhost>() != null ||
+                                   (Character.localCharacter.data != null && Character.localCharacter.data.dead);
+
+                    if (!isGhost)
+                    {
+                        // Player is alive: disable freecam so normal camera remains completely untouched
+                        freecamActive = false;
+                        return;
+                    }
+                }
+                else
+                {
+                    // Character is null: instantiate fallback camera if missing and trigger ghost freecam
                     if (MainCamera.instance == null || MainCamera.instance.cam == null)
                     {
                         GameObject camObj = new GameObject("FreeGhost_FallbackCamera");
