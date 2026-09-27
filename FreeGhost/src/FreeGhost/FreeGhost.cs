@@ -5,6 +5,7 @@ using System;
 using System.ComponentModel.Design;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.SceneManagement;
 using static FreeGhost.FreeGhost_Functions.RightClickHandler;
 
 namespace FreeGhost
@@ -24,11 +25,11 @@ namespace FreeGhost
         public static Quaternion desiredRotation;
         public static GameObject visualProp = null;
         public static PhysicsSyncer syncer = null;
-        private static bool freecamActive = false;
+        internal static bool freecamActive = false;
         public static Item visualItem;
         private static bool propisAntiGravity = false;
         private static bool propIsKinematic = true;
-        private static FreecamController controller;
+        internal static FreecamController controller;
 
         public static void Binds(ConfigFile config)
         {
@@ -54,6 +55,9 @@ namespace FreeGhost
                 new ConfigDescription("Prop Forward",
                 new AcceptableValueRange<float>(-50f, 50f)));
 
+            GameObject managerObj = new GameObject("GlobalFreecamManager");
+            UnityEngine.Object.DontDestroyOnLoad(managerObj);
+            managerObj.AddComponent<GlobalFreecamManager>();
         }
 
         [HarmonyPatch]
@@ -61,11 +65,11 @@ namespace FreeGhost
         {
             private static float moveSpeed = 5f;
             private static float lookSpeed = 2f;
-            private static float rotationX = 0f;
-            private static float rotationY = 0f;
+            internal static float rotationX = 0f;
+            internal static float rotationY = 0f;
             static bool isFlipped = false;
 
-            private static bool subscribedToRenderHooks = false;
+            internal static bool subscribedToRenderHooks = false;
 
             [HarmonyPatch(typeof(PlayerGhost), "RPCA_InitGhost")]
             [HarmonyPostfix]
@@ -147,7 +151,7 @@ namespace FreeGhost
                     return;
                 if (GUIManager.instance == null || GUIManager.instance.windowBlockingInput)
                     return;
-                if (controller.linkedVisualProp == null || !controller.linkedVisualProp.activeSelf)
+                if (controller != null && controller.linkedVisualProp != null && !controller.linkedVisualProp.activeSelf)
                     DropItem();
 
                 float mouseX = Input.GetAxis("Mouse X");
@@ -169,10 +173,19 @@ namespace FreeGhost
                 if (Input.GetKey(KeyCode.LeftControl)) move += Vector3.down;
                 if (Input.GetKey(KeyCode.F))
                 {
-                    if (controller.spectatingCharacter != null)
+                    if (controller != null && controller.spectatingCharacter != null)
                     {
                         if (Vector3.Distance(desiredPosition, controller.spectatingCharacter.Center) > 15)
                             desiredPosition = controller.spectatingCharacter.Center + Vector3.up * 10;
+                    }
+                }
+                if (Input.GetKey(KeyCode.Escape))
+                {
+                    if (Character.localCharacter == null)
+                    {
+                        var pauseMenu = GameObject.Find("GAME/GUIManager/PauseMenu");
+                        if (pauseMenu != null)
+                            pauseMenu.SetActive(!pauseMenu.activeSelf);
                     }
                 }
                 bool isMoving = move != Vector3.zero;
@@ -239,18 +252,12 @@ namespace FreeGhost
                             targetPosition = desiredPosition + forward * otherForward.Value + Vector3.down * otherDown.Value;
                     }
 
-                    // 1. Rotate root object
                     visualProp.transform.rotation = targetRotation;
-
-                    // 2. Derive offset relative to child Rigidbody position
                     Vector3 localOffset = GetLocalCenterOffset(visualProp);
                     Vector3 worldOffset = targetRotation * localOffset;
-
-                    // 3. Position root so child Rigidbody centers on targetPosition
                     Vector3 finalPos = targetPosition - worldOffset;
                     visualProp.transform.position = finalPos;
 
-                    // 4. Update child Rigidbody position/rotation for PhysicsSyncer
                     Rigidbody hipRb = visualProp.GetComponentInChildren<Rigidbody>();
                     if (hipRb != null)
                     {
@@ -266,8 +273,8 @@ namespace FreeGhost
                 }
             }
 
-            private static void OnCameraPreCull(Camera cam) => ApplyDesiredTransform(cam);
-            private static void OnBeginCameraRendering(ScriptableRenderContext context, Camera cam) => ApplyDesiredTransform(cam);
+            internal static void OnCameraPreCull(Camera cam) => ApplyDesiredTransform(cam);
+            internal static void OnBeginCameraRendering(ScriptableRenderContext context, Camera cam) => ApplyDesiredTransform(cam);
 
             private static void ApplyDesiredTransform(Camera cam)
             {
@@ -282,7 +289,7 @@ namespace FreeGhost
             [HarmonyPostfix]
             private static void OnSwitchPlayer(PlayerGhost __instance, PhotonView t)
             {
-                if (!freecamActive || !enableFreeGhost.Value) return;
+                if (!freecamActive || !enableFreeGhost.Value || controller == null) return;
                 PhotonView pv = __instance.GetComponent<PhotonView>();
                 if (pv != null && pv.IsMine)
                 {
@@ -290,6 +297,54 @@ namespace FreeGhost
                     controller.spectatingCharacter = c;
                     if (Vector3.Distance(desiredPosition, c.Center) > 50)
                         desiredPosition = c.Center + Vector3.up * 10;
+                }
+            }
+        }
+
+        public class GlobalFreecamManager : MonoBehaviour
+        {
+            void Update()
+            {
+                if (!enableFreeGhost.Value) return;
+
+                // Restrict fallback camera injection to specific scene types
+                string activeSceneName = SceneManager.GetActiveScene().name;
+                if (activeSceneName != "Airport" && !activeSceneName.StartsWith("Level_")) return;
+
+                if (Character.localCharacter == null)
+                {
+                    if (MainCamera.instance == null || MainCamera.instance.cam == null)
+                    {
+                        GameObject camObj = new GameObject("FreeGhost_FallbackCamera");
+                        Camera cam = camObj.AddComponent<Camera>();
+                        camObj.AddComponent<AudioListener>();
+
+                        MainCamera mainCam = camObj.AddComponent<MainCamera>();
+                        mainCam.cam = cam;
+
+                        if (MainCamera.instance == null)
+                            MainCamera.instance = mainCam;
+
+                        desiredPosition = new Vector3(0, 10, 0);
+                        desiredRotation = Quaternion.identity;
+                        freecamActive = true;
+
+                        if (!PlayerGhostPatch.subscribedToRenderHooks)
+                        {
+                            Camera.onPreCull += PlayerGhostPatch.OnCameraPreCull;
+                            RenderPipelineManager.beginCameraRendering += PlayerGhostPatch.OnBeginCameraRendering;
+                            PlayerGhostPatch.subscribedToRenderHooks = true;
+                        }
+                    }
+                    else if (!freecamActive)
+                    {
+                        freecamActive = true;
+                        Transform camTransform = MainCamera.instance.cam.transform;
+                        desiredPosition = camTransform.position;
+                        desiredRotation = camTransform.rotation;
+                        PlayerGhostPatch.rotationX = camTransform.eulerAngles.x;
+                        PlayerGhostPatch.rotationY = camTransform.eulerAngles.y;
+                    }
                 }
             }
         }
@@ -303,7 +358,6 @@ namespace FreeGhost
             visualProp = item;
             visualItem = item.GetComponent<Item>();
 
-            // Find existing child Rigidbody or attach if missing
             Rigidbody hipRb = item.GetComponentInChildren<Rigidbody>();
             if (hipRb == null)
             {
@@ -314,13 +368,11 @@ namespace FreeGhost
                     hipRb = item.AddComponent<Rigidbody>();
             }
 
-            // Keep non-kinematic for PUN sync, but disable gravity for levitation
             hipRb.isKinematic = false;
             hipRb.useGravity = false;
             hipRb.linearVelocity = Vector3.zero;
             hipRb.angularVelocity = Vector3.zero;
 
-            // Bind active Rigidbody reference to PhysicsSyncer
             syncer = item.GetComponentInParent<PhysicsSyncer>();
             if (syncer != null)
             {
@@ -342,7 +394,7 @@ namespace FreeGhost
                 propIsKinematic = false;
             }
 
-            controller.linkedVisualProp = visualProp;
+            if (controller != null) controller.linkedVisualProp = visualProp;
         }
 
         public static void DropItem()
@@ -370,7 +422,7 @@ namespace FreeGhost
             propisAntiGravity = false;
             visualItem = null;
             syncer = null;
-            controller.linkedVisualProp = null;
+            if (controller != null) controller.linkedVisualProp = null;
         }
 
         private static Vector3 GetLocalCenterOffset(GameObject root)
@@ -389,24 +441,18 @@ namespace FreeGhost
             public const float MaxSyncDistance = 500f;
             public static readonly Vector3 GhostUpOffset = new Vector3(0f, 0.5f, 0f);
 
-            /// <summary>
-            /// Encodes the free-flight camera position into native lookDirection and spectateZoom fields.
-            /// </summary>
             public static bool TryEncode(PlayerGhost ghost, Vector3 desiredPosition)
             {
                 if (ghost == null || ghost.m_owner == null || ghost.m_target == null)
                     return false;
 
-                // Only update network data if local client owns the player view
                 if (ghost.m_owner.photonView == null || !ghost.m_owner.photonView.IsMine)
                     return false;
 
-                // Vanilla formula: Target.Center + (0.5 * Vector3.up) - (spectateZoom * lookDirection)
                 Vector3 targetOrigin = ghost.m_target.Center + GhostUpOffset;
                 Vector3 targetOffset = desiredPosition - targetOrigin;
                 float distance = targetOffset.magnitude;
 
-                // Guard against NaN/Infinity values
                 if (float.IsNaN(distance) || float.IsInfinity(distance))
                     return false;
 
@@ -417,20 +463,15 @@ namespace FreeGhost
                     return true;
                 }
 
-                // Repurpose lookDirection and spectateZoom
                 float clampedDistance = Mathf.Min(distance, MaxSyncDistance);
                 Vector3 lookDirection = -targetOffset.normalized;
 
-                // Write into character sync payload
                 ghost.m_owner.data.lookDirection = lookDirection;
                 ghost.m_owner.data.spectateZoom = clampedDistance;
 
                 return true;
             }
 
-            /// <summary>
-            /// Decodes network lookDirection and spectateZoom back into world coordinates.
-            /// </summary>
             public static Vector3 Decode(Vector3 targetCenter, Vector3 lookDirection, float spectateZoom)
             {
                 Vector3 origin = targetCenter + GhostUpOffset;
