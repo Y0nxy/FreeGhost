@@ -179,15 +179,7 @@ namespace FreeGhost
                             desiredPosition = controller.spectatingCharacter.Center + Vector3.up * 10;
                     }
                 }
-                if (Input.GetKey(KeyCode.Escape))
-                {
-                    if (Character.localCharacter == null)
-                    {
-                        var pauseMenu = GameObject.Find("GAME/GUIManager/PauseMenu");
-                        if (pauseMenu != null)
-                            pauseMenu.SetActive(!pauseMenu.activeInHierarchy);
-                    }
-                }
+                
                 bool isMoving = move != Vector3.zero;
                 if (isMoving)
                 {
