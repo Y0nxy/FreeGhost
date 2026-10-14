@@ -216,7 +216,7 @@ namespace FreeGhost
                 }
                 if (controller != null && controller.GetComponent<PlayerGhost>() is PlayerGhost localGhost)
                 {
-                    SyncGhostLocation.TryEncode(localGhost, desiredPosition);
+                    GhostPosition.GhostPositionSync.SetPosition(desiredPosition);
                 }
 
                 if (visualProp != null)
@@ -448,49 +448,6 @@ namespace FreeGhost
             }
 
             return Vector3.zero;
-        }
-
-        public static class SyncGhostLocation
-        {
-            public const float MaxSyncDistance = 500f;
-            public static readonly Vector3 GhostUpOffset = new Vector3(0f, 0.5f, 0f);
-
-            public static bool TryEncode(PlayerGhost ghost, Vector3 desiredPosition)
-            {
-                if (ghost == null || ghost.m_owner == null || ghost.m_target == null)
-                    return false;
-
-                if (ghost.m_owner.photonView == null || !ghost.m_owner.photonView.IsMine)
-                    return false;
-
-                Vector3 targetOrigin = ghost.m_target.Center + GhostUpOffset;
-                Vector3 targetOffset = desiredPosition - targetOrigin;
-                float distance = targetOffset.magnitude;
-
-                if (float.IsNaN(distance) || float.IsInfinity(distance))
-                    return false;
-
-                if (distance <= 0.0001f)
-                {
-                    ghost.m_owner.data.lookDirection = Vector3.forward;
-                    ghost.m_owner.data.spectateZoom = 0f;
-                    return true;
-                }
-
-                float clampedDistance = Mathf.Min(distance, MaxSyncDistance);
-                Vector3 lookDirection = -targetOffset.normalized;
-
-                ghost.m_owner.data.lookDirection = lookDirection;
-                ghost.m_owner.data.spectateZoom = clampedDistance;
-
-                return true;
-            }
-
-            public static Vector3 Decode(Vector3 targetCenter, Vector3 lookDirection, float spectateZoom)
-            {
-                Vector3 origin = targetCenter + GhostUpOffset;
-                return origin - (lookDirection.normalized * spectateZoom);
-            }
         }
 
         public class FreecamController : MonoBehaviour
