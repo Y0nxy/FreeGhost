@@ -220,7 +220,7 @@ namespace FreeGhost
                     }
                     if (Input.GetMouseButtonDown(0) && visualItem != null)
                     {
-                        visualItem.FinishCastPrimary();
+                        HandleLeftClick();
                     }
                     if (Input.GetMouseButtonDown(1))
                     {
@@ -263,6 +263,44 @@ namespace FreeGhost
                 {
                     HandleRightClick();
                 }
+            }
+
+            private static void HandleLeftClick()
+            {
+                if (visualItem.UIData.hasMainInteract)
+                {
+                    visualItem.FinishCastPrimary();
+                    return;
+                }
+                var frog = visualItem.GetComponent<FrogTongue>();
+                if (frog != null)
+                {
+                    var c = rayCastCharacter();
+                    if (c== null)
+                    {
+                        Plugin.log("character not found!");
+                        return;
+                    }
+                    frog.photonView.RPC("RPCA_FrogAction", RpcTarget.All, new object[]{
+                        c.photonView,
+                        FrogTongue.FrogActionType.Attack,
+                        Vector3.zero
+                    });
+                }
+            }
+
+            private static Character rayCastCharacter()
+            {
+                Plugin.log($"RayCast! maxDist: {maxDistance}");
+                Ray ray = new Ray(FreeGhost.desiredPosition, FreeGhost.desiredRotation * Vector3.forward);
+                RaycastHit rcHit;
+                if (Physics.Raycast(ray, out rcHit, maxDistance, LayerMask.GetMask("Character")))
+                {
+                    Character character = rcHit.collider.GetComponentInParent<Character>();
+                    Plugin.log($"Right Clicked on: {character.name}");
+                    return character;
+                }
+                return null;
             }
 
             internal static void OnCameraPreCull(Camera cam) => ApplyDesiredTransform(cam);

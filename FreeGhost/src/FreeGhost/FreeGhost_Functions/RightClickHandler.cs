@@ -1,8 +1,7 @@
 ﻿using Peak;
+using Peak.Island;
 using Photon.Pun;
 using System;
-using System.Collections.Generic;
-using System.Text;
 using UnityEngine;
 using static FreeGhost.FreeGhost;
 
@@ -17,7 +16,7 @@ namespace FreeGhost.FreeGhost_Functions
             if (visualProp != null)
             {
                 if (visualItem == null) return;
-                if (visualItem.canUseOnFriend)
+                if (visualItem.canUseOnFriend)// or can use at all
                 {
                     Plugin.log("canUseOnFriend");
                     RayCast(maxDistance, true);
@@ -74,7 +73,51 @@ namespace FreeGhost.FreeGhost_Functions
                             return;
                         }
                     }
+                    ArrowShooter arrowShooter = hit.GetComponentInParent<ArrowShooter>();
+                    if (arrowShooter != null)
+                    {
+                        Plugin.log("ArrowShooter found");
 
+                        //var range = arrowShooter.range;
+                        //var pos = arrowShooter.pos;
+                        //var forward = arrowShooter.forward;
+
+                        //if (!Physics.Raycast(pos, forward, out var hitInfo, range, HelperFunctions.AllPhysical, QueryTriggerInteraction.Ignore))
+                        //{
+                        //    return;
+                        //}
+                        arrowShooter.view.RPC("FireArrowVisuals_RPC", RpcTarget.All, Vector3.zero, true);
+                        arrowShooter.ammo+=2;
+                        arrowShooter.reloading = false;
+                        //arrowShooter.view.RPC()
+                        return;
+                    }
+                    VoiceThief voiceThief = hit.GetComponentInParent<VoiceThief>();
+                    if (voiceThief != null)
+                    {
+                        var victimId = PhotonNetwork.LocalPlayer.ActorNumber;
+                        float duration = UnityEngine.Random.Range(Mathf.Max(0f, 8 - 3), 8 + 3);
+                        voiceThief._networkView.RPC("RPCA_Assign", RpcTarget.AllBuffered, new object[] { victimId, duration });
+                        return;
+                    }
+                    VenusFlyTrap venusFlyTrap = hit.GetComponentInParent<VenusFlyTrap>();
+                    if (venusFlyTrap != null)
+                    {
+                        venusFlyTrap.LetGo();
+                        return;
+                    }
+                    var spike = hit.GetComponentInParent<SpikeTrap>();
+                    if (spike != null)
+                    {
+                        spike.view.RPC("SpikeTrapRPC", RpcTarget.All, Array.Empty<object>());
+                        return;
+                    }
+                    var ghostfire = hit.GetComponentInParent<GhostFire>();
+                    if (ghostfire != null)
+                    {
+                        ghostfire.LightFire();
+                        return;
+                    }
                     // 3. PhysicsSyncer Check
                     var phySync = hit.GetComponentInParent<PhysicsSyncer>();
                     if (phySync != null)
