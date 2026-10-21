@@ -16,8 +16,9 @@ namespace FreeGhost.FreeGhost_Functions
             if (visualProp != null)
             {
                 if (visualItem == null) return;
-                if (visualItem.canUseOnFriend)// or can use at all
+                if (visualItem.canUseOnFriend || visualItem.UIData.hasMainInteract)// or can use at all
                 {
+                    visualItem.canUseOnFriend = true;
                     Plugin.log("canUseOnFriend");
                     RayCast(maxDistance, true);
                 }
@@ -156,10 +157,10 @@ namespace FreeGhost.FreeGhost_Functions
             {
                 construct.photonView.RPC("CreatePrefabRPC", RpcTarget.AllBuffered, new object[]
                 {
-                                    //construct.currentPreview.transform.position,
-                                    //construct.currentPreview.transform.rotation
-                                    prop.transform.position,
-                                    FreeGhost.desiredRotation
+                    //construct.currentPreview.transform.position,
+                    //construct.currentPreview.transform.rotation
+                    prop.transform.position,
+                    FreeGhost.desiredRotation
                 });
                 PhotonNetwork.Destroy(prop.gameObject);
                 FreeGhost.DropItem();

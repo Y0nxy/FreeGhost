@@ -30,7 +30,7 @@ namespace FreeGhost
         private static bool propisAntiGravity = false;
         private static bool propIsKinematic = true;
         internal static FreecamController controller;
-
+        static GameObject managerObj = null;
         public static void Binds(ConfigFile config)
         {
             enableFreeGhost = config.Bind("FreeGhost", "enable free ghost", true);
@@ -267,25 +267,28 @@ namespace FreeGhost
 
             private static void HandleLeftClick()
             {
+                Plugin.log("left click");
                 if (visualItem.UIData.hasMainInteract)
                 {
                     visualItem.FinishCastPrimary();
-                    return;
+                    //return;
                 }
                 var frog = visualItem.GetComponent<FrogTongue>();
                 if (frog != null)
                 {
+                    Plugin.log("found frog");
                     var c = rayCastCharacter();
                     if (c== null)
                     {
                         Plugin.log("character not found!");
                         return;
                     }
-                    frog.photonView.RPC("RPCA_FrogAction", RpcTarget.All, new object[]{
-                        c.photonView,
-                        FrogTongue.FrogActionType.Attack,
-                        Vector3.zero
-                    });
+                    frog.Attack(c.photonView);
+                    //frog.photonView.RPC("RPCA_FrogAction", RpcTarget.All, new object[]{
+                    //    c.photonView,
+                    //    FrogTongue.FrogActionType.Attack,
+                    //    Vector3.zero
+                    //});
                 }
             }
 
@@ -333,6 +336,14 @@ namespace FreeGhost
 
         public class GlobalFreecamManager : MonoBehaviour
         {
+            void OnDestroy()
+            {
+                freecamActive = false;
+                controller = null;
+                visualProp = null;
+                visualItem = null;
+                syncer = null;
+            }
             void Update()
             {
                 if (!enableFreeGhost.Value) return;
