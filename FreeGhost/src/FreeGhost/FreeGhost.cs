@@ -31,6 +31,69 @@ namespace FreeGhost
         private static bool propIsKinematic = true;
         internal static FreecamController controller;
         static GameObject managerObj = null;
+        // Camera created by the manager when no MainCamera exists; tracked so it can be removed on scene exit
+        static GameObject fallbackCamObj = null;
+        // Cached "are we in a scene where the freecam is allowed to run" flag (avoids per-camera string allocs)
+        static bool inGameplayScene = false;
+
+        private static bool IsGameplayScene(string sceneName)
+        {
+            return !string.IsNullOrEmpty(sceneName) &&
+                   (sceneName == "Airport" || sceneName.StartsWith("Level_"));
+        }
+
+        // Fully shuts the freecam down and gives the camera back to the game.
+        // Called whenever we leave the Airport / Level_ scenes (e.g. into "Title").
+        internal static void ResetFreecam()
+        {
+            bool nothingToReset = !freecamActive && controller == null && visualProp == null &&
+                                  visualItem == null && syncer == null && fallbackCamObj == null &&
+                                  !PlayerGhostPatch.subscribedToRenderHooks;
+            if (nothingToReset) return;
+
+            freecamActive = false;
+
+            // Release any held prop (DropItem also clears visualProp / visualItem / syncer)
+            try
+            {
+                if (visualProp != null || visualItem != null)
+                    DropItem();
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning($"FreeGhost: error while dropping item on reset: {e.Message}");
+            }
+
+            visualProp = null;
+            visualItem = null;
+            syncer = null;
+            propisAntiGravity = false;
+            propIsKinematic = true;
+
+            if (controller != null)
+            {
+                controller.onDestroyed = null;
+                controller.linkedVisualProp = null;
+                UnityEngine.Object.Destroy(controller);
+            }
+            controller = null;
+
+            // Stop touching every camera's transform
+            if (PlayerGhostPatch.subscribedToRenderHooks)
+            {
+                Camera.onPreCull -= PlayerGhostPatch.OnCameraPreCull;
+                RenderPipelineManager.beginCameraRendering -= PlayerGhostPatch.OnBeginCameraRendering;
+                PlayerGhostPatch.subscribedToRenderHooks = false;
+            }
+
+            // Remove our fallback camera so it can't become / shadow the other scene's MainCamera
+            if (fallbackCamObj != null)
+                UnityEngine.Object.Destroy(fallbackCamObj);
+            fallbackCamObj = null;
+
+            Plugin.Log.LogInfo("FreeGhost: freecam reset (left gameplay scene)");
+        }
+
         public static void Binds(ConfigFile config)
         {
             enableFreeGhost = config.Bind("FreeGhost", "enable free ghost", true);
@@ -54,6 +117,8 @@ namespace FreeGhost
             otherForward = config.Bind("FreeGhost", "other forward", 1f,
                 new ConfigDescription("Prop Forward",
                 new AcceptableValueRange<float>(-50f, 50f)));
+
+            inGameplayScene = IsGameplayScene(SceneManager.GetActiveScene().name);
 
             GameObject managerObj = new GameObject("GlobalFreecamManager");
             UnityEngine.Object.DontDestroyOnLoad(managerObj);
@@ -147,7 +212,7 @@ namespace FreeGhost
             [HarmonyPostfix]
             public static void Postfix_MainCameraLateUpdate(MainCamera __instance)
             {
-                if (!freecamActive || __instance.cam == null || !enableFreeGhost.Value)
+                if (!freecamActive || !inGameplayScene || __instance.cam == null || !enableFreeGhost.Value)
                     return;
                 if (GUIManager.instance == null || GUIManager.instance.windowBlockingInput)
                     return;
@@ -179,7 +244,7 @@ namespace FreeGhost
                             desiredPosition = controller.spectatingCharacter.Center + Vector3.up * 10;
                     }
                 }
-                
+
                 bool isMoving = move != Vector3.zero;
                 if (isMoving)
                 {
@@ -278,7 +343,7 @@ namespace FreeGhost
                 {
                     Plugin.log("found frog");
                     var c = rayCastCharacter();
-                    if (c== null)
+                    if (c == null)
                     {
                         Plugin.log("character not found!");
                         return;
@@ -311,7 +376,7 @@ namespace FreeGhost
 
             private static void ApplyDesiredTransform(Camera cam)
             {
-                if (!freecamActive || cam == null || MainCamera.instance == null || cam != MainCamera.instance.cam || !enableFreeGhost.Value)
+                if (!freecamActive || !inGameplayScene || cam == null || MainCamera.instance == null || cam != MainCamera.instance.cam || !enableFreeGhost.Value)
                     return;
 
                 cam.transform.position = desiredPosition;
@@ -344,13 +409,37 @@ namespace FreeGhost
                 visualItem = null;
                 syncer = null;
             }
+            void OnEnable()
+            {
+                SceneManager.activeSceneChanged += OnActiveSceneChanged;
+            }
+
+            void OnDisable()
+            {
+                SceneManager.activeSceneChanged -= OnActiveSceneChanged;
+            }
+
+            // Reset immediately on scene switch so not a single frame of the new scene is affected
+            void OnActiveSceneChanged(Scene oldScene, Scene newScene)
+            {
+                inGameplayScene = IsGameplayScene(newScene.name);
+                if (!inGameplayScene)
+                    ResetFreecam();
+            }
+
             void Update()
             {
-                if (!enableFreeGhost.Value) return;
-
-                // Restrict logic to specific level/scene types
+                // Restrict logic to specific level/scene types; anywhere else (e.g. "Title") the
+                // freecam must be fully off and the game's own camera left completely untouched.
                 string activeSceneName = SceneManager.GetActiveScene().name;
-                if (activeSceneName != "Airport" && !activeSceneName.StartsWith("Level_")) return;
+                inGameplayScene = IsGameplayScene(activeSceneName);
+                if (!inGameplayScene)
+                {
+                    ResetFreecam();
+                    return;
+                }
+
+                if (!enableFreeGhost.Value) return;
 
                 // When character exists, only allow camera modification if player is a ghost
                 if (Character.localCharacter != null)
@@ -371,6 +460,7 @@ namespace FreeGhost
                     if (MainCamera.instance == null || MainCamera.instance.cam == null)
                     {
                         GameObject camObj = new GameObject("FreeGhost_FallbackCamera");
+                        fallbackCamObj = camObj;
                         Camera cam = camObj.AddComponent<Camera>();
                         camObj.AddComponent<AudioListener>();
 
