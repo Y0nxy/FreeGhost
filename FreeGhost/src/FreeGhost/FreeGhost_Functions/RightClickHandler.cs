@@ -63,62 +63,7 @@ namespace FreeGhost.FreeGhost_Functions
                         return;
                     }
 
-                    // 2. Luggage Check
-                    Luggage luggage = hit.GetComponentInParent<Luggage>();
-                    if (luggage != null)
-                    {
-                        if (luggage.state != Luggage.LuggageState.Open)
-                        {
-                            luggage.photonView.RPC("OpenLuggageRPC", RpcTarget.All, new object[] { true });
-                            Plugin.log("Opened luggage: " + luggage.name);
-                            return;
-                        }
-                    }
-                    ArrowShooter arrowShooter = hit.GetComponentInParent<ArrowShooter>();
-                    if (arrowShooter != null)
-                    {
-                        Plugin.log("ArrowShooter found");
-
-                        //var range = arrowShooter.range;
-                        //var pos = arrowShooter.pos;
-                        //var forward = arrowShooter.forward;
-
-                        //if (!Physics.Raycast(pos, forward, out var hitInfo, range, HelperFunctions.AllPhysical, QueryTriggerInteraction.Ignore))
-                        //{
-                        //    return;
-                        //}
-                        arrowShooter.view.RPC("FireArrowVisuals_RPC", RpcTarget.All, Vector3.zero, true);
-                        arrowShooter.ammo+=2;
-                        arrowShooter.reloading = false;
-                        //arrowShooter.view.RPC()
-                        return;
-                    }
-                    VoiceThief voiceThief = hit.GetComponentInParent<VoiceThief>();
-                    if (voiceThief != null)
-                    {
-                        var victimId = PhotonNetwork.LocalPlayer.ActorNumber;
-                        float duration = UnityEngine.Random.Range(Mathf.Max(0f, 8 - 3), 8 + 3);
-                        voiceThief._networkView.RPC("RPCA_Assign", RpcTarget.AllBuffered, new object[] { victimId, duration });
-                        return;
-                    }
-                    VenusFlyTrap venusFlyTrap = hit.GetComponentInParent<VenusFlyTrap>();
-                    if (venusFlyTrap != null)
-                    {
-                        venusFlyTrap.LetGo();
-                        return;
-                    }
-                    var spike = hit.GetComponentInParent<SpikeTrap>();
-                    if (spike != null)
-                    {
-                        spike.view.RPC("SpikeTrapRPC", RpcTarget.All, Array.Empty<object>());
-                        return;
-                    }
-                    var ghostfire = hit.GetComponentInParent<GhostFire>();
-                    if (ghostfire != null)
-                    {
-                        ghostfire.LightFire();
-                        return;
-                    }
+                    HandleNonItems(hit);
                     // 3. PhysicsSyncer Check
                     var phySync = hit.GetComponentInParent<PhysicsSyncer>();
                     if (phySync != null)
@@ -198,6 +143,56 @@ namespace FreeGhost.FreeGhost_Functions
                 col.center = new Vector3(0, 80, 0);
                 col.size = new Vector3(70, 150, 70);
                 Plugin.log($"Successfully added BoxCollider to Tornado: {tornado.name}");
+            }
+        }
+        static void HandleNonItems(GameObject hit)
+        {
+            Luggage luggage = hit.GetComponentInParent<Luggage>();
+            if (luggage != null)
+            {
+                if (luggage.state == Luggage.LuggageState.Open)
+                {
+                    luggage.photonView.RPC("OpenLuggageRPC", RpcTarget.All, new object[] { true });
+                    Plugin.log("Opened luggage: " + luggage.name);
+                    return;
+                }
+            }
+            ArrowShooter arrowShooter = hit.GetComponentInParent<ArrowShooter>();
+            if (arrowShooter != null)
+            {
+                Plugin.log("ArrowShooter found");
+                FreeGhost.EnsureOwnership(arrowShooter.photonView);
+                arrowShooter.view.RPC("FireArrowVisuals_RPC", RpcTarget.All, Vector3.zero, true);
+                arrowShooter.ammo += 2;
+                arrowShooter.reloading = false;
+                //arrowShooter.view.RPC()
+                return;
+            }
+            VoiceThief voiceThief = hit.GetComponentInParent<VoiceThief>();
+            if (voiceThief != null)
+            {
+                var victimId = PhotonNetwork.LocalPlayer.ActorNumber;
+                float duration = UnityEngine.Random.Range(Mathf.Max(0f, 8 - 3), 8 + 3);
+                voiceThief._networkView.RPC("RPCA_Assign", RpcTarget.AllBuffered, new object[] { victimId, duration });
+                return;
+            }
+            VenusFlyTrap venusFlyTrap = hit.GetComponentInParent<VenusFlyTrap>();
+            if (venusFlyTrap != null)
+            {
+                venusFlyTrap.LetGo();
+                return;
+            }
+            var spike = hit.GetComponentInParent<SpikeTrap>();
+            if (spike != null)
+            {
+                spike.view.RPC("SpikeTrapRPC", RpcTarget.All, Array.Empty<object>());
+                return;
+            }
+            var ghostfire = hit.GetComponentInParent<GhostFire>();
+            if (ghostfire != null)
+            {
+                ghostfire.LightFire();
+                return;
             }
         }
     }

@@ -597,7 +597,7 @@ namespace FreeGhost
             }
         }
 
-        private static void EnsureOwnership(PhotonView view)
+        public static void EnsureOwnership(PhotonView view)
         {
             if (view == null || view.IsMine) return;
             if (view.OwnershipTransfer == OwnershipOption.Fixed)
